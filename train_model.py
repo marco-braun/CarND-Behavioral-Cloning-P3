@@ -7,6 +7,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 from keras.layers import Lambda, Cropping2D
+import matplotlib.pyplot as plt
 
 
 class steering_model(object):
@@ -65,7 +66,10 @@ def main(log_results, model_name, data_path):
             data.append(line)
         data = np.array(data)
 
-    input_images_paths_old = data[:, 1]
+    input_images_paths_old = {}
+    input_images_paths_old["center"] = data[:, 0]
+    input_images_paths_old["left"] = data[:, 1]
+    input_images_paths_old["right"] = data[:, 2]
 
     Label_data_str = data[:, 3] #steering
     Input_image_data = []
@@ -75,14 +79,17 @@ def main(log_results, model_name, data_path):
     print("Extracting images from repository ...")
     for i in tqdm(range(data.shape[0])):
 
-        path_new = os.path.join(data_path, 'IMG', input_images_paths_old[i].split('/')[-1])
+        correction = {"center": 0, "left": 0.2, "right": -0.2}
+        for position in input_images_paths_old.keys():
+            path_new = os.path.join(data_path, 'IMG', input_images_paths_old[position][i].split('/')[-1])
 
-        Input_image_data.append(cv2.imread(path_new))
-        Label_data.append(float(Label_data_str[i]))
 
-        # flipped recording
-        Input_image_data.append(np.fliplr(cv2.imread(path_new)))
-        Label_data.append(-float(Label_data_str[i]))
+            Input_image_data.append(cv2.imread(path_new))
+            Label_data.append(float(Label_data_str[i]) + correction[position])
+
+            # flipped recording
+            Input_image_data.append(np.fliplr(cv2.imread(path_new)))
+            Label_data.append(-(float(Label_data_str[i]) + correction[position]))
 
     Input_image_data = np.array(Input_image_data, dtype=np.float32)
     Label_data = np.array(Label_data)
@@ -96,10 +103,19 @@ def main(log_results, model_name, data_path):
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
         callbacks.append(CSVLogger(os.path.join(dir_name, 'training_log.csv'), append=True, separator=';'))
-    model.fit(Input_image_data, Label_data, validation_split=0.2, shuffle=True, epochs=20, batch_size=32, callbacks=callbacks)
+    train_log = model.fit(Input_image_data, Label_data, validation_split=0.2, shuffle=True, epochs=20, batch_size=32, callbacks=callbacks)
 
     if log_results == True:
         model.save(os.path.join(dir_name, 'model_{}.h5'.format(model_name)))
+        loss = train_log.history['loss']
+        val_loss = train_log.history['val_loss']
+        plt.plot(loss)
+        plt.plot(val_loss)
+        plt.title('model mean squared error loss')
+        plt.ylabel('mean squared error loss')
+        plt.xlabel('epoch')
+        plt.legend(['training set', 'validation set'], loc='upper right')
+        plt.savefig(os.path.join(dir_name, 'loss_plot.png'))
 
 
 
@@ -115,5 +131,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    model_name = "LeNet_data_augment"
+    model_name = "LeNet"
     main(log_results=True, model_name=model_name, data_path=args.data_path)
